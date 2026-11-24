@@ -1,0 +1,88 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: pedido-service
+  # -------------------------------------------------------------------------
+  # RabbitMQ (clúster de 2 nodos). Si un nodo cae, el cliente se reconecta al otro.
+  # -------------------------------------------------------------------------
+  rabbitmq:
+    addresses: ${RABBIT_ADDRESSES:localhost:5672,localhost:5673}
+    username: ${RABBIT_USER:admin}
+    password: ${RABBIT_PASSWORD:admin123}
+    publisher-confirm-type: correlated   # el broker confirma cada mensaje publicado
+    publisher-returns: true              # avisa si el mensaje no pudo enrutarse a ninguna cola
+    template:
+      mandatory: true
+  # -------------------------------------------------------------------------
+  # Base de datos cloud (Amazon RDS). Sin variables, usa H2 en memoria (desarrollo).
+  #   DB_URL=jdbc:postgresql://<endpoint-rds>:5432/pedidosdb   (o jdbc:mysql://<endpoint>:3306/pedidosdb)
+  # -------------------------------------------------------------------------
+  datasource:
+    url: ${DB_URL:jdbc:h2:mem:pedidosdb;DB_CLOSE_DELAY=-1}
+    username: ${DB_USERNAME:sa}
+    password: ${DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: 5
+      connection-timeout: 10000
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: ${DB_DDL_AUTO:update}   # "update" crea/ajusta las tablas; en producción real usar migraciones
+    properties:
+      hibernate.jdbc.time_zone: UTC
+
+# ---------------------------------------------------------------------------
+# Configuración del cliente Kafka (se enlaza a KafkaClientProperties)
+# ---------------------------------------------------------------------------
+app:
+  rabbit:
+    exchanges:
+      direct: pedidos.direct
+      topic: eventos.topic
+    queues:
+      pedidos-confirmados: cola.pedidos.confirmados
+      notificaciones: cola.notificaciones
+      auditoria: cola.auditoria
+  security:                          # validación de JWT (Amazon Cognito u otro IDaaS OIDC)
+    issuer-uri: ${IDAAS_ISSUER_URI:}
+    jwk-set-uri: ${IDAAS_JWK_SET_URI:}
+    audience: ${IDAAS_AUDIENCE:}      # app client id (opcional pero recomendado)
+    cors-allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200}
+  kafka:
+    # Brokers expuestos por docker-compose (listeners EXTERNAL)
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092,localhost:9093,localhost:9094}
+    topics:
+      pedidos: pedidos.eventos          # este servicio PRODUCE aquí
+      inventario: inventario.eventos    # este servicio CONSUME de aquí
+    producer:
+      acks: all                         # espera a todas las réplicas en ISR
+      retries: 5
+      linger-ms: 20                     # agrupa mensajes (batching)
+      batch-size: 32768
+      compression-type: lz4
+      request-timeout-ms: 15000
+      delivery-timeout-ms: 60000
+    consumer:
+      group-id: pedido-group
+      auto-offset-reset: earliest
+      max-poll-records: 100
+      max-poll-interval-ms: 300000
+      session-timeout-ms: 30000
+      heartbeat-interval-ms: 10000
+      concurrency: 3                    # = particiones del tópico
+      retry-max-attempts: 3             # reintentos antes de enviar a la DLT
+      retry-backoff-ms: 1000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+logging:
+  level:
+    root: INFO
+    cl.duoc.streaming: INFO
+    org.apache.kafka.clients.NetworkClient: ERROR

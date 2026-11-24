@@ -1,0 +1,35 @@
+# --- Java / Maven (backend) ---
+target/
+*.class
+*.jar
+*.war
+*.log
+.mvn/wrapper/maven-wrapper.jar
+dependency-reduced-pom.xml
+
+# --- IDEs ---
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+.factorypath
+*.swp
+
+# --- SO ---
+.DS_Store
+Thumbs.db
+
+# --- Secretos / entorno local ---
+.env
+*.pem
+*.key
+application-local.yml
+application-secrets.yml
+
+# --- Node / Angular (si este repo se usa junto al frontend; el front va en su propio repo) ---
+node_modules/
+dist/
+.angular/
+.env

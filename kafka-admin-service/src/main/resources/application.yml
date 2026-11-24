@@ -1,0 +1,56 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: kafka-admin-service
+
+app:
+  security:                          # validación de JWT (Amazon Cognito u otro IDaaS OIDC)
+    issuer-uri: ${IDAAS_ISSUER_URI:}
+    jwk-set-uri: ${IDAAS_JWK_SET_URI:}
+    audience: ${IDAAS_AUDIENCE:}      # app client id (opcional pero recomendado)
+    cors-allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092,localhost:9093,localhost:9094}
+    # Tópicos del sistema: se crean (o se corrigen) automáticamente al iniciar el servicio.
+    # Cada flujo de datos tiene parámetros de administración ajustados a su necesidad.
+    topics:
+      # Eventos de pedidos: histórico de 7 días para reproceso/auditoría.
+      - name: pedidos.eventos
+        partitions: 3                 # paralelismo: hasta 3 consumidores activos por grupo
+        replicas: 3                   # 1 líder + 2 seguidores -> tolera la caída de 2 brokers sin perder datos
+        retention-ms: 604800000       # 7 días
+        cleanup-policy: delete
+        min-insync-replicas: 2        # con acks=all se exigen 2 réplicas sincronizadas por escritura
+      # Resultado de stock: compactado, queda el último estado por pedidoId (clave) + tope de 30 días.
+      - name: inventario.eventos
+        partitions: 3
+        replicas: 3
+        retention-ms: 2592000000      # 30 días
+        cleanup-policy: compact,delete
+        min-insync-replicas: 2
+      # Dead Letter Topics: mensajes que no se pudieron procesar (se conservan para análisis).
+      - name: pedidos.eventos.DLT
+        partitions: 3                 # mismas particiones que el original (el recoverer conserva la partición)
+        replicas: 3
+        retention-ms: 2592000000
+        cleanup-policy: delete
+        min-insync-replicas: 2
+      - name: inventario.eventos.DLT
+        partitions: 3
+        replicas: 3
+        retention-ms: 2592000000
+        cleanup-policy: delete
+        min-insync-replicas: 2
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+logging:
+  level:
+    root: INFO
+    cl.duoc.streaming: INFO

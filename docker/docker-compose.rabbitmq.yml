@@ -1,0 +1,61 @@
+# ---------------------------------------------------------------------------
+# Clúster RabbitMQ de 2 nodos (rabbit1 + rabbit2) con consola de administración.
+#
+#   docker compose -f docker/docker-compose.rabbitmq.yml up -d
+#
+# Consola nodo 1: http://localhost:15672   Consola nodo 2: http://localhost:15673
+# AMQP nodo 1: localhost:5672              AMQP nodo 2: localhost:5673
+# Usuario/clave: variables RABBIT_USER / RABBIT_PASSWORD (por defecto admin / admin123)
+#
+# Las colas, exchanges, bindings y la política de alta disponibilidad (réplica en ambos
+# nodos) las crea el microservicio rabbit-admin-service al iniciar.
+# ---------------------------------------------------------------------------
+name: rabbitmq-cluster
+
+x-rabbit-common: &rabbit-common
+  image: rabbitmq:3.13-management
+  restart: unless-stopped
+  networks: [rabbit-net]
+  environment:
+    RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE:-DSY1107CLUSTERCOOKIE}   # misma cookie = mismo clúster
+    RABBITMQ_DEFAULT_USER: ${RABBIT_USER:-admin}
+    RABBITMQ_DEFAULT_PASS: ${RABBIT_PASSWORD:-admin123}
+  healthcheck:
+    test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+    interval: 15s
+    timeout: 10s
+    retries: 10
+    start_period: 40s
+
+services:
+  rabbit1:
+    <<: *rabbit-common
+    container_name: rabbit1
+    hostname: rabbit1
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbit1-data:/var/lib/rabbitmq
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/20-cluster.conf:ro
+
+  rabbit2:
+    <<: *rabbit-common
+    container_name: rabbit2
+    hostname: rabbit2
+    depends_on:
+      rabbit1: { condition: service_healthy }
+    ports:
+      - "5673:5672"
+      - "15673:15672"
+    volumes:
+      - rabbit2-data:/var/lib/rabbitmq
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/20-cluster.conf:ro
+
+networks:
+  rabbit-net:
+    name: rabbit-net
+
+volumes:
+  rabbit1-data:
+  rabbit2-data:

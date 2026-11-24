@@ -1,0 +1,91 @@
+# ---------------------------------------------------------------------------
+# Microservicios + frontend, para desplegar en una instancia EC2 junto a Kafka y RabbitMQ.
+#
+# Orden de arranque (desde la raíz del repositorio):
+#   cp .env.example .env        # y completar los valores
+#   docker compose -f docker/docker-compose.kafka.yml up -d
+#   docker compose -f docker/docker-compose.rabbitmq.yml up -d
+#   docker compose --env-file .env -f docker/docker-compose.apps.yml up -d --build
+#
+# Los servicios se conectan a los brokers por la red interna de Docker (kafkaN:29092, rabbitN:5672).
+# ---------------------------------------------------------------------------
+name: apps
+
+x-java-service: &java-service
+  restart: unless-stopped
+  networks: [kafka-net, rabbit-net]
+
+x-security-env: &security-env
+  IDAAS_ISSUER_URI: ${IDAAS_ISSUER_URI:?defina IDAAS_ISSUER_URI en .env}
+  IDAAS_AUDIENCE: ${IDAAS_AUDIENCE:-}
+  CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:4200}
+
+x-kafka-env: &kafka-env
+  KAFKA_BOOTSTRAP_SERVERS: kafka1:29092,kafka2:29092,kafka3:29092
+
+x-rabbit-env: &rabbit-env
+  RABBIT_ADDRESSES: rabbit1:5672,rabbit2:5672
+  RABBIT_USER: ${RABBIT_USER:-admin}
+  RABBIT_PASSWORD: ${RABBIT_PASSWORD:-admin123}
+
+services:
+  kafka-admin-service:
+    <<: *java-service
+    build: ../kafka-admin-service
+    container_name: kafka-admin-service
+    ports: ["8084:8084"]
+    environment:
+      <<: [*security-env, *kafka-env]
+
+  rabbit-admin-service:
+    <<: *java-service
+    build: ../rabbit-admin-service
+    container_name: rabbit-admin-service
+    ports: ["8085:8085"]
+    environment:
+      <<: [*security-env, *rabbit-env]
+      RABBIT_MANAGEMENT_URL: http://rabbit1:15672
+
+  pedido-service:
+    <<: *java-service
+    build: ../pedido-service
+    container_name: pedido-service
+    ports: ["8081:8081"]
+    environment:
+      <<: [*security-env, *kafka-env, *rabbit-env]
+      DB_URL: ${DB_URL:?defina DB_URL (JDBC de Amazon RDS) en .env}
+      DB_USERNAME: ${DB_USERNAME:?defina DB_USERNAME en .env}
+      DB_PASSWORD: ${DB_PASSWORD:?defina DB_PASSWORD en .env}
+
+  inventario-service:
+    <<: *java-service
+    build: ../inventario-service
+    container_name: inventario-service
+    ports: ["8082:8082"]
+    environment:
+      <<: [*security-env, *kafka-env, *rabbit-env]
+
+  notificacion-service:
+    <<: *java-service
+    build: ../notificacion-service
+    container_name: notificacion-service
+    ports: ["8083:8083"]
+    environment:
+      <<: [*security-env, *kafka-env, *rabbit-env]
+
+  # Opcional: frontend servido por nginx en la propia EC2 (alternativa a S3 + CloudFront).
+  #   docker compose --env-file .env -f docker/docker-compose.apps.yml --profile frontend up -d --build
+  frontend:
+    profiles: ["frontend"]
+    build: ../frontend
+    container_name: frontend
+    restart: unless-stopped
+    ports: ["80:80"]
+
+networks:
+  kafka-net:
+    external: true
+    name: kafka-net
+  rabbit-net:
+    external: true
+    name: rabbit-net

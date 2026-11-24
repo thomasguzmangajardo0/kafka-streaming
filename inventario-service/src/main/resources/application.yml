@@ -1,0 +1,80 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: inventario-service
+  # -------------------------------------------------------------------------
+  # RabbitMQ (clúster de 2 nodos). Si un nodo cae, el cliente se reconecta al otro.
+  # -------------------------------------------------------------------------
+  rabbitmq:
+    addresses: ${RABBIT_ADDRESSES:localhost:5672,localhost:5673}
+    username: ${RABBIT_USER:admin}
+    password: ${RABBIT_PASSWORD:admin123}
+    listener:
+      simple:
+        missing-queues-fatal: false    # el servicio arranca aunque las colas aún no existan
+        default-requeue-rejected: false
+        prefetch: 10
+        retry:
+          enabled: true                # reintentos con espera creciente antes de ir a la DLQ
+          max-attempts: 3
+          initial-interval: 1000ms
+          multiplier: 2.0
+          max-interval: 10000ms
+
+app:
+  rabbit:
+    exchanges:
+      direct: pedidos.direct
+      topic: eventos.topic
+    queues:
+      pedidos-confirmados: cola.pedidos.confirmados
+      notificaciones: cola.notificaciones
+      auditoria: cola.auditoria
+  security:                          # validación de JWT (Amazon Cognito u otro IDaaS OIDC)
+    issuer-uri: ${IDAAS_ISSUER_URI:}
+    jwk-set-uri: ${IDAAS_JWK_SET_URI:}
+    audience: ${IDAAS_AUDIENCE:}      # app client id (opcional pero recomendado)
+    cors-allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092,localhost:9093,localhost:9094}
+    topics:
+      pedidos: pedidos.eventos          # este servicio CONSUME de aquí
+      inventario: inventario.eventos    # este servicio PRODUCE aquí
+    producer:
+      acks: all
+      retries: 5
+      linger-ms: 20
+      batch-size: 32768
+      compression-type: lz4
+      request-timeout-ms: 15000
+      delivery-timeout-ms: 60000
+    consumer:
+      group-id: inventario-group        # instancias de inventario se reparten las particiones
+      auto-offset-reset: earliest
+      max-poll-records: 100
+      max-poll-interval-ms: 300000
+      session-timeout-ms: 30000
+      heartbeat-interval-ms: 10000
+      concurrency: 3                    # = particiones de pedidos.eventos
+      retry-max-attempts: 3
+      retry-backoff-ms: 1000
+  inventario:
+    stock-inicial:
+      SKU-001: 100
+      SKU-002: 50
+      SKU-003: 10
+      SKU-004: 0
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+logging:
+  level:
+    root: INFO
+    cl.duoc.streaming: INFO
+    org.apache.kafka.clients.NetworkClient: ERROR

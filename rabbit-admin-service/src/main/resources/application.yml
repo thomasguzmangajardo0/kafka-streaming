@@ -1,0 +1,63 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: rabbit-admin-service
+  rabbitmq:
+    addresses: ${RABBIT_ADDRESSES:localhost:5672,localhost:5673}
+    username: ${RABBIT_USER:admin}
+    password: ${RABBIT_PASSWORD:admin123}
+
+app:
+  security:                          # validación de JWT (Amazon Cognito u otro IDaaS OIDC)
+    issuer-uri: ${IDAAS_ISSUER_URI:}
+    jwk-set-uri: ${IDAAS_JWK_SET_URI:}
+    audience: ${IDAAS_AUDIENCE:}      # app client id (opcional pero recomendado)
+    cors-allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200}
+  rabbit:
+    # API de administración (consola web) de RabbitMQ: sirve para listar y para aplicar políticas
+    management:
+      url: ${RABBIT_MANAGEMENT_URL:http://localhost:15672}
+      username: ${RABBIT_USER:admin}
+      password: ${RABBIT_PASSWORD:admin123}
+    vhost: /
+    apply-on-startup: true               # crea / corrige la topología al iniciar (idempotente)
+
+    # Alta disponibilidad: las colas "cola.*" se replican en los dos nodos del clúster
+    ha-policy:
+      name: ha-cola
+      pattern: "^cola\\."
+      priority: 0
+      definition:
+        ha-mode: all
+        ha-sync-mode: automatic
+
+    # Exchange de mensajes muertos (DLX): recibe lo que las colas rechazan sin reencolar
+    dead-letter-exchange: dlx.direct
+
+    exchanges:
+      - { name: pedidos.direct, type: direct }   # ruteo exacto por routing key
+      - { name: eventos.topic,  type: topic }    # ruteo por patrón (pedido.*, pedido.#)
+
+    # Cada cola con dead-letter=true obtiene automáticamente su DLQ "<cola>.dlq"
+    queues:
+      - { name: cola.pedidos.confirmados, dead-letter: true }
+      - { name: cola.notificaciones,      dead-letter: true }
+      - { name: cola.auditoria,           dead-letter: true }
+
+    bindings:
+      - { exchange: pedidos.direct, queue: cola.pedidos.confirmados, routing-key: pedido.confirmado }
+      - { exchange: eventos.topic,  queue: cola.notificaciones,      routing-key: "pedido.*" }
+      - { exchange: eventos.topic,  queue: cola.auditoria,           routing-key: "pedido.#" }
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+logging:
+  level:
+    root: INFO
+    cl.duoc.streaming: INFO

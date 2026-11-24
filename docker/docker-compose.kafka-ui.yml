@@ -1,0 +1,31 @@
+# ---------------------------------------------------------------------------
+# Kafka UI: administración y monitoreo de brokers, tópicos, particiones,
+# consumer groups (offsets / lag) y mensajes.
+#
+# Requiere el clúster levantado (misma red "kafka-net"):
+#   docker compose -f docker/docker-compose.kafka.yml up -d
+#   docker compose -f docker/docker-compose.kafka-ui.yml up -d
+#
+# UI en http://localhost:8090
+# ---------------------------------------------------------------------------
+name: kafka-ui
+
+services:
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    container_name: kafka-ui
+    restart: unless-stopped
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: cluster-evaluacion
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka1:29092,kafka2:29092,kafka3:29092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper1:2181,zookeeper2:2181,zookeeper3:2181
+      DYNAMIC_CONFIG_ENABLED: "true"
+      JAVA_OPTS: "-Xmx384m"
+    networks: [kafka-net]
+
+networks:
+  kafka-net:
+    external: true
+    name: kafka-net

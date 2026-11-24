@@ -1,0 +1,150 @@
+# ---------------------------------------------------------------------------
+# Clúster Kafka de alta disponibilidad: 3 nodos Zookeeper + 3 brokers.
+#
+#   docker compose -f docker/docker-compose.kafka.yml up -d
+#
+# Puertos expuestos al host (para los microservicios Spring Boot):
+#   broker 1 -> localhost:9092   broker 2 -> localhost:9093   broker 3 -> localhost:9094
+# Comunicación interna entre contenedores: kafkaN:29092
+# ---------------------------------------------------------------------------
+name: kafka-streaming
+
+x-zookeeper-common: &zookeeper-common
+  image: confluentinc/cp-zookeeper:7.6.1
+  restart: unless-stopped
+  networks: [kafka-net]
+  healthcheck:
+    test: ["CMD-SHELL", "echo srvr | nc localhost 2181 | grep -q Mode"]
+    interval: 10s
+    timeout: 5s
+    retries: 10
+
+x-zookeeper-env: &zookeeper-env
+  ZOOKEEPER_CLIENT_PORT: 2181
+  ZOOKEEPER_TICK_TIME: 2000
+  ZOOKEEPER_INIT_LIMIT: 5
+  ZOOKEEPER_SYNC_LIMIT: 2
+  # Ensamble de 3 nodos: tolera la caída de 1 (quórum = 2)
+  ZOOKEEPER_SERVERS: zookeeper1:2888:3888;zookeeper2:2888:3888;zookeeper3:2888:3888
+  KAFKA_HEAP_OPTS: "-Xms128m -Xmx256m"      # heap acotado para correr en una instancia EC2 pequeña
+
+x-kafka-common: &kafka-common
+  image: confluentinc/cp-kafka:7.6.1
+  restart: unless-stopped
+  networks: [kafka-net]
+  depends_on:
+    zookeeper1: { condition: service_healthy }
+    zookeeper2: { condition: service_healthy }
+    zookeeper3: { condition: service_healthy }
+  healthcheck:
+    test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:29092 > /dev/null 2>&1"]
+    interval: 15s
+    timeout: 10s
+    retries: 10
+    start_period: 30s
+
+x-kafka-env: &kafka-env
+  KAFKA_ZOOKEEPER_CONNECT: zookeeper1:2181,zookeeper2:2181,zookeeper3:2181
+  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+  KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+  # Durabilidad y tolerancia a fallos
+  KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+  KAFKA_MIN_INSYNC_REPLICAS: 2
+  KAFKA_NUM_PARTITIONS: 3
+  KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+  KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+  KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+  KAFKA_UNCLEAN_LEADER_ELECTION_ENABLE: "false"
+  # Los tópicos se crean de forma controlada (microservicio administrador / script)
+  KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+  KAFKA_DELETE_TOPIC_ENABLE: "true"
+  KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+  KAFKA_HEAP_OPTS: "-Xms256m -Xmx512m"
+
+services:
+  zookeeper1:
+    <<: *zookeeper-common
+    container_name: zookeeper1
+    hostname: zookeeper1
+    environment:
+      <<: *zookeeper-env
+      ZOOKEEPER_SERVER_ID: 1
+
+  zookeeper2:
+    <<: *zookeeper-common
+    container_name: zookeeper2
+    hostname: zookeeper2
+    environment:
+      <<: *zookeeper-env
+      ZOOKEEPER_SERVER_ID: 2
+
+  zookeeper3:
+    <<: *zookeeper-common
+    container_name: zookeeper3
+    hostname: zookeeper3
+    environment:
+      <<: *zookeeper-env
+      ZOOKEEPER_SERVER_ID: 3
+
+  kafka1:
+    <<: *kafka-common
+    container_name: kafka1
+    hostname: kafka1
+    ports: ["9092:9092"]
+    environment:
+      <<: *kafka-env
+      KAFKA_BROKER_ID: 1
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka1:29092,EXTERNAL://localhost:9092
+    volumes: [kafka1-data:/var/lib/kafka/data]
+
+  kafka2:
+    <<: *kafka-common
+    container_name: kafka2
+    hostname: kafka2
+    ports: ["9093:9093"]
+    environment:
+      <<: *kafka-env
+      KAFKA_BROKER_ID: 2
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka2:29092,EXTERNAL://localhost:9093
+    volumes: [kafka2-data:/var/lib/kafka/data]
+
+  kafka3:
+    <<: *kafka-common
+    container_name: kafka3
+    hostname: kafka3
+    ports: ["9094:9094"]
+    environment:
+      <<: *kafka-env
+      KAFKA_BROKER_ID: 3
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9094
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka3:29092,EXTERNAL://localhost:9094
+    volumes: [kafka3-data:/var/lib/kafka/data]
+
+  # Contenedor de un solo uso: crea los tópicos del sistema (idempotente).
+  # Misma definición que app.kafka.topics del kafka-admin-service.
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: kafka-init
+    networks: [kafka-net]
+    depends_on:
+      kafka1: { condition: service_healthy }
+      kafka2: { condition: service_healthy }
+      kafka3: { condition: service_healthy }
+    restart: "no"
+    volumes:
+      - ../scripts/crear-topicos.sh:/scripts/crear-topicos.sh:ro
+    environment:
+      BOOTSTRAP: kafka1:29092,kafka2:29092,kafka3:29092
+      KAFKA_TOPICS_CMD: kafka-topics
+    entrypoint: ["/bin/bash", "/scripts/crear-topicos.sh"]
+
+networks:
+  kafka-net:
+    name: kafka-net
+
+volumes:
+  kafka1-data:
+  kafka2-data:
+  kafka3-data:

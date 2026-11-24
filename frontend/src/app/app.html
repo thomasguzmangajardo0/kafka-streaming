@@ -1,0 +1,22 @@
+<header class="topbar">
+  <a class="brand" routerLink="/">
+    <span class="brand-mark" aria-hidden="true"></span>
+    Pedidos en streaming
+  </a>
+
+  @if (auth.autenticado()) {
+    <nav aria-label="Principal">
+      <a routerLink="/pedidos" routerLinkActive="activo">Pedidos</a>
+      <a routerLink="/inventario" routerLinkActive="activo">Inventario</a>
+      <a routerLink="/notificaciones" routerLinkActive="activo">Notificaciones</a>
+    </nav>
+    <div class="usuario">
+      <span class="correo" [title]="auth.email()">{{ auth.email() || auth.clienteId() }}</span>
+      <button type="button" class="secundario" (click)="auth.logout()">Cerrar sesión</button>
+    </div>
+  }
+</header>
+
+<main>
+  <router-outlet />
+</main>
