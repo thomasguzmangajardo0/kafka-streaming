@@ -4,7 +4,7 @@
  */
 export const environment = {
   production: true,
-  apiBaseUrl: 'https://<API_ID>.execute-api.us-east-1.amazonaws.com',
+  apiBaseUrl: 'https://5s61sob186.execute-api.us-east-1.amazonaws.com',
   oidc: {
     authority: 'https://cognito-idp.us-east-1.amazonaws.com/us-east-1_CCiOJPsum',
     clientId: '306s07jon6r3gn1ll3db65emi4',

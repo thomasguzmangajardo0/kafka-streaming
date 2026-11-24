@@ -6,7 +6,7 @@ export const environment = {
   production: false,
 
   /** URL base del API Manager (Amazon API Gateway). En local puede apuntar directo a los microservicios. */
-  apiBaseUrl: 'http://localhost:8080',
+  apiBaseUrl: 'https://5s61sob186.execute-api.us-east-1.amazonaws.com',
 
   oidc: {
     /** Issuer del user pool: https://cognito-idp.<región>.amazonaws.com/<userPoolId> */
